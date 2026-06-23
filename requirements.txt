@@ -3,3 +3,4 @@ Django>=5.0
 pillow
 sqlparse
 tzdata
+whitenoise
