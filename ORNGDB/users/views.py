@@ -797,3 +797,44 @@ def bulk_delete_stores(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
+
+
+@login_required
+def admin_view_agent_products(request, agent_id):
+    if request.user.role != 'admin':
+        return redirect('home')
+    agent = get_object_or_404(User, id=agent_id, role='agent')
+    products = Product.objects.filter(agent=agent).order_by('position', 'name')
+    return render(request, 'users/admin_agent_products.html', {'agent': agent, 'products': products})
+
+@login_required
+def admin_view_agent_stores(request, agent_id):
+    if request.user.role != 'admin':
+        return redirect('home')
+        
+    from django.db.models import Sum, F
+    from django.db.models.functions import Lower, Coalesce
+    
+    agent = get_object_or_404(User, id=agent_id, role='agent')
+    stores = Store.objects.filter(owner=agent).order_by('name')
+    
+    # Calculate unpaid balance for each store name for this agent
+    unpaid_balances = Order.objects.filter(
+        assigned_delivery_user=agent,
+        payment_status='unpaid'
+    ).exclude(
+        status='cancelled'
+    ).annotate(
+        store_name_lower=Lower('store_name')
+    ).values('store_name_lower').annotate(
+        balance=Sum(Coalesce('remaining_balance', F('total_amount') + F('old_balance')))
+    )
+    balance_map = {item['store_name_lower'].strip(): item['balance'] for item in unpaid_balances}
+    
+    # Attach balance to store objects
+    for s in stores:
+        s_name_lower = s.name.lower().strip()
+        s.balance = balance_map.get(s_name_lower, 0.00)
+        
+    return render(request, 'users/admin_agent_stores.html', {'agent': agent, 'stores': stores})
+
